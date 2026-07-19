@@ -125,6 +125,16 @@ jobs:
           PROFILE_UUID=$(security cms -D -i /tmp/ios_certs/profile.mobileprovision | plutil -extract UUID raw -o - -)
           cp /tmp/ios_certs/profile.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision"
 
+          # Force manual signing downstream instead of relying on xcodebuild's automatic
+          # signing manager -- that still requires a registered Xcode "account" even with
+          # -authenticationKeyPath supplied, which a Keychain import alone doesn't satisfy.
+          TEAM_ID=$(security cms -D -i /tmp/ios_certs/profile.mobileprovision | plutil -extract TeamIdentifier.0 raw -o - -)
+          CODE_SIGN_IDENTITY=$(security find-identity -v -p codesigning build.keychain | sed -n 's/.*"\(.*\)".*/\1/p' | head -1)
+
+          echo "FEROME_TEAM_ID=${TEAM_ID}" >> "$GITHUB_ENV"
+          echo "FEROME_CODE_SIGN_IDENTITY=${CODE_SIGN_IDENTITY}" >> "$GITHUB_ENV"
+          echo "FEROME_PROFILE_UUID=${PROFILE_UUID}" >> "$GITHUB_ENV"
+
       - name: Build archive
         working-directory: project/ios
         run: |
@@ -137,15 +147,15 @@ jobs:
             -scheme "$SCHEME" \
             -configuration Release \
             -archivePath ../../build/App.xcarchive \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$PWD/../../private_keys/AuthKey_${{ inputs.apple_api_key_id }}.p8" \
-            -authenticationKeyID "${{ inputs.apple_api_key_id }}" \
-            -authenticationKeyIssuerID "${{ inputs.apple_issuer_id }}"
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="$FEROME_CODE_SIGN_IDENTITY" \
+            DEVELOPMENT_TEAM="$FEROME_TEAM_ID" \
+            PROVISIONING_PROFILE="$FEROME_PROFILE_UUID"
 
       - name: Export IPA
         working-directory: project/ios
         run: |
-          cat > ../../ExportOptions.plist <<'EOF'
+          cat > ../../ExportOptions.plist <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -153,18 +163,21 @@ jobs:
             <key>method</key>
             <string>app-store-connect</string>
             <key>signingStyle</key>
-            <string>automatic</string>
+            <string>manual</string>
+            <key>signingCertificate</key>
+            <string>$FEROME_CODE_SIGN_IDENTITY</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>${{ inputs.app_identifier }}</key>
+              <string>$FEROME_PROFILE_UUID</string>
+            </dict>
           </dict>
           </plist>
           EOF
           xcodebuild -exportArchive \
             -archivePath ../../build/App.xcarchive \
             -exportPath ../../build/export \
-            -exportOptionsPlist ../../ExportOptions.plist \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$PWD/../../private_keys/AuthKey_${{ inputs.apple_api_key_id }}.p8" \
-            -authenticationKeyID "${{ inputs.apple_api_key_id }}" \
-            -authenticationKeyIssuerID "${{ inputs.apple_issuer_id }}"
+            -exportOptionsPlist ../../ExportOptions.plist
           find ../../build/export -name "*.ipa" -maxdepth 1 -print -quit | xargs -I {} cp {} ../../app.ipa
 
       - name: Upload IPA to Ferome
