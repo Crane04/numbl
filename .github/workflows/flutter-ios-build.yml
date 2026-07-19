@@ -82,10 +82,6 @@ jobs:
 
       - name: Build archive
         working-directory: project/ios
-        env:
-          APP_STORE_CONNECT_API_KEY_KEY_ID: ${{ inputs.apple_api_key_id }}
-          APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ inputs.apple_issuer_id }}
-          APP_STORE_CONNECT_API_KEY_KEY: ${{ inputs.apple_api_key_content }}
         run: |
           SCHEME="${{ inputs.scheme }}"
           if [ -z "$SCHEME" ]; then
@@ -96,7 +92,10 @@ jobs:
             -scheme "$SCHEME" \
             -configuration Release \
             -archivePath ../../build/App.xcarchive \
-            -allowProvisioningUpdates
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$PWD/../../private_keys/AuthKey_${{ inputs.apple_api_key_id }}.p8" \
+            -authenticationKeyID "${{ inputs.apple_api_key_id }}" \
+            -authenticationKeyIssuerID "${{ inputs.apple_issuer_id }}"
 
       - name: Export IPA
         working-directory: project/ios
@@ -117,7 +116,10 @@ jobs:
             -archivePath ../../build/App.xcarchive \
             -exportPath ../../build/export \
             -exportOptionsPlist ../../ExportOptions.plist \
-            -allowProvisioningUpdates
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$PWD/../../private_keys/AuthKey_${{ inputs.apple_api_key_id }}.p8" \
+            -authenticationKeyID "${{ inputs.apple_api_key_id }}" \
+            -authenticationKeyIssuerID "${{ inputs.apple_issuer_id }}"
           find ../../build/export -name "*.ipa" -maxdepth 1 -print -quit | xargs -I {} cp {} ../../app.ipa
 
       - name: Upload IPA to Ferome
